@@ -36,7 +36,7 @@ public class InventoryEventPublisher {
         payload.put("eventType", "INVENTORY_RESERVED");
         payload.put("timestamp", Instant.now().toString());
         try {
-            this.kafkaTemplate.send(INVENTORY_RESERVED_TOPIC, (Object)orderId, (Object)this.objectMapper.writeValueAsString(payload));
+            this.kafkaTemplate.send(INVENTORY_RESERVED_TOPIC, orderId, this.objectMapper.writeValueAsString(payload));
         }
         catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize inventory event", ex);
