@@ -164,6 +164,47 @@ az containerapp logs show --name notification-service --resource-group $RG --fol
 az containerapp logs show --name kafka --resource-group $RG --follow
 
 # -----------------------------------------------------------------
-# 12) Cleanup (optional)
+# 12) Troubleshooting: Kafka Connectivity Issues (if services timeout)
+# -----------------------------------------------------------------
+# SYMPTOM: Services show "socket connection setup timeout" or "Bootstrap broker disconnected"
+# 
+# ROOT CAUSE: ACA internal service discovery uses short names, not full FQDNs
+# Services cannot reliably connect to full FQDN like 
+# kafka.internal.ashyplant-ea07b56b.eastasia.azurecontainerapps.io:9092
+#
+# FIX: Use short service name "kafka:9092" for all internal ACA services
+# -----------------------------------------------------------------
+
+# Step 1: Fix Kafka advertised listeners
+az containerapp update --name kafka --resource-group $RG `
+  --set-env-vars KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://kafka:9092"
+
+# Step 2: Fix service bootstrap servers 
+az containerapp update --name order-service --resource-group $RG `
+  --set-env-vars SPRING_KAFKA_BOOTSTRAP_SERVERS="kafka:9092"
+
+az containerapp update --name inventory-service --resource-group $RG `
+  --set-env-vars SPRING_KAFKA_BOOTSTRAP_SERVERS="kafka:9092"
+
+az containerapp update --name notification-service --resource-group $RG `
+  --set-env-vars SPRING_KAFKA_BOOTSTRAP_SERVERS="kafka:9092"
+
+# Step 3: Restart services to apply config
+Start-Sleep -Seconds 30
+az containerapp update --name order-service --resource-group $RG --image $IMG_ORDER
+az containerapp update --name inventory-service --resource-group $RG --image $IMG_INVENTORY
+az containerapp update --name notification-service --resource-group $RG --image $IMG_NOTIFICATION
+
+# Step 4: Test connectivity (should see order flow work)
+$payload = @{orderId="KAFKA-FIX-TEST"; sku="SKU-TEST"; quantity=5} | ConvertTo-Json -Compress
+Invoke-RestMethod -Uri "$GATEWAY_URL/orders" -Method Post -ContentType "application/json" -Body $payload
+Start-Sleep -Seconds 10
+Invoke-RestMethod -Uri "$GATEWAY_URL/orders/KAFKA-FIX-TEST" -Method Get
+
+# Expected: Order status should change from CREATED → INVENTORY_RESERVED (Kafka events flowing)
+# If still CREATED: Check logs with: az containerapp logs show --name order-service --resource-group $RG --tail 100
+
+# -----------------------------------------------------------------
+# 13) Cleanup (optional)
 # -----------------------------------------------------------------
 # az group delete --name $RG --yes --no-wait
