@@ -7,6 +7,11 @@ spring:
   cloud:
     gateway:
       routes:
+        - id: gateway-root
+          uri: forward:/actuator/health
+          predicates:
+            - Path=/
+
         - id: order-service
           uri: http://order-service:8081
           predicates:
