@@ -1,0 +1,250 @@
+{
+  "info": {
+    "_postman_id": "9cf77cb0-65fe-4a64-bdfa-a2de0d4f4b71",
+    "name": "Kafka Microservices (Azure Gateway)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Cloud test collection for Gateway + Order/Inventory/Notification + Kafka event flow on Azure Container Apps"
+  },
+  "item": [
+    {
+      "name": "00) Gateway",
+      "item": [
+        {
+          "name": "Gateway Root",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Gateway Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "var data = pm.response.json();",
+                  "pm.test('Health is UP', function () {",
+                  "  pm.expect(data.status).to.eql('UP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01) Order Flow",
+      "item": [
+        {
+          "name": "Create Order (order.created)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var generated = 'ORD-AZ-' + Date.now();",
+                  "pm.collectionVariables.set('orderId', generated);",
+                  "pm.collectionVariables.set('retryCount', '0');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 202', function () {",
+                  "  pm.response.to.have.status(202);",
+                  "});",
+                  "var data = pm.response.json();",
+                  "pm.test('Response has orderId and CREATED status', function () {",
+                  "  pm.expect(data).to.have.property('orderId');",
+                  "  pm.expect(data.status).to.eql('CREATED');",
+                  "});",
+                  "if (data && data.orderId) {",
+                  "  pm.collectionVariables.set('orderId', data.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"sku\": \"SKU-CLOUD\",\n  \"quantity\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Order Status (Immediate)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "var data = pm.response.json();",
+                  "pm.test('Has orderId and status', function () {",
+                  "  pm.expect(data).to.have.property('orderId');",
+                  "  pm.expect(data).to.have.property('status');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Poll Order Status (After Kafka)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "var data = pm.response.json();",
+                  "var status = data.status;",
+                  "var retryCount = parseInt(pm.collectionVariables.get('retryCount') || '0', 10);",
+                  "var maxRetries = parseInt(pm.collectionVariables.get('maxRetries') || '6', 10);",
+                  "",
+                  "pm.test('Response has valid status value', function () {",
+                  "  pm.expect(['CREATED', 'INVENTORY_RESERVED', 'UNKNOWN']).to.include(status);",
+                  "});",
+                  "",
+                  "console.log('Order status:', status, '| retry:', retryCount, '/', maxRetries);",
+                  "",
+                  "if (status === 'INVENTORY_RESERVED') {",
+                  "  pm.test('Kafka flow completed', function () {",
+                  "    pm.expect(status).to.eql('INVENTORY_RESERVED');",
+                  "  });",
+                  "  pm.collectionVariables.set('retryCount', '0');",
+                  "  postman.setNextRequest(null);",
+                  "} else if (retryCount < maxRetries) {",
+                  "  pm.collectionVariables.set('retryCount', String(retryCount + 1));",
+                  "  postman.setNextRequest('Poll Order Status (After Kafka)');",
+                  "} else {",
+                  "  pm.test('Kafka flow timed out before INVENTORY_RESERVED', function () {",
+                  "    pm.expect.fail('Final status: ' + status + '. Expected INVENTORY_RESERVED within retries.');",
+                  "  });",
+                  "  pm.collectionVariables.set('retryCount', '0');",
+                  "  postman.setNextRequest(null);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://gateway.ashyplant-ea07b56b.eastasia.azurecontainerapps.io"
+    },
+    {
+      "key": "orderId",
+      "value": "ORD-AZ-INIT"
+    },
+    {
+      "key": "retryCount",
+      "value": "0"
+    },
+    {
+      "key": "maxRetries",
+      "value": "6"
+    }
+  ]
+}
