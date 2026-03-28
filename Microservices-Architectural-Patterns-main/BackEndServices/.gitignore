@@ -1,0 +1,21 @@
+# Build outputs
+**/target/
+**/out/
+
+# Packaged artifacts
+*.jar
+*.war
+*.ear
+
+# Dependency directories
+**/lib/
+**/libs/
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
